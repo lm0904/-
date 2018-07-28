@@ -1,3 +1,4 @@
+// https://www.cnblogs.com/fishpro/p/how_to_using_httpclient_for_asp_net_core.html
 using System;
 using System.Collections.Generic;
 using System.IO;
