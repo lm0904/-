@@ -212,7 +212,7 @@ namespace Application
 
         public static void SetCookies(this HttpContentHeaders keyValuePairs)
         {
-            // return formate "cookie1=value1; cookie2=value2"
+            // format "cookie1=value1; cookie2=value2"
             string cookies = "";
             var i = 0;
             foreach (var item in Cookies)
