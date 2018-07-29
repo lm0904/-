@@ -1,17 +1,18 @@
-// https://www.cnblogs.com/fishpro/p/how_to_using_httpclient_for_asp_net_core.html
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Applicaction
+namespace Application
 {
     public static class HttpHelp
     {
+        public static IEnumerable<Cookie> Cookies { get; set; }
         /// <summary>
         /// 使用Get方法获取字符串结果（没有加入Cookie）
         /// </summary>
@@ -32,7 +33,6 @@ namespace Applicaction
                 var ret = encoding.GetString(data);
                 return ret;
             }
-
         }
         /// <summary>
         /// Http Get 同步方法
@@ -60,36 +60,74 @@ namespace Applicaction
         }
 
         /// <summary>
-        /// POST 异步
+        /// POST 异步 (加入cookie <see cref="Cookies"/>)
         /// </summary>
         /// <param name="url"></param>
         /// <param name="postStream"></param>
         /// <param name="encoding"></param>
         /// <param name="timeOut"></param>
         /// <returns></returns>
-        public static async Task<string> HttpPostAsync(string url, Dictionary<string, string> formData = null, Encoding encoding = null, int timeOut = 10000)
+        public static async Task<string> HttpPostWithCookieAsync(string url, Dictionary<string, string> formData = null, Encoding encoding = null, int timeOut = 10000)
         {
-            HttpClientHandler handler = new HttpClientHandler();
+            Uri uri = new Uri(url);
 
-            using (HttpClient client = new HttpClient(handler))
+            using (HttpClientHandler handler = new HttpClientHandler { UseCookies = false })
+            using (HttpClient client = new HttpClient(handler) { BaseAddress = uri })
             {
                 MemoryStream ms = new MemoryStream();
                 formData.FillFormDataStream(ms);//填充formData
-                HttpContent hc = new StreamContent(ms);
+                HttpContent httpContent = new StreamContent(ms);
+                
+                client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("text/html"));
+                client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/xhtml+xml"));
+                client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/xml", 0.9));
+                client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("image/webp"));
+                client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("*/*", 0.8));
+                httpContent.Headers.Add("UserAgent", "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/31.0.1650.57 Safari/537.36");
+                httpContent.Headers.Add("Timeout", timeOut.ToString());
+                httpContent.Headers.Add("KeepAlive", "true");
+                httpContent.Headers.SetCookies();
 
+                var result = await client.PostAsync(url, httpContent);
+                byte[] tmp = await result.Content.ReadAsByteArrayAsync();
+
+                return encoding.GetString(tmp);
+            }
+        }
+
+        /// <summary>
+        /// POST FormData 异步 并设置 <see cref="Cookies"/>
+        /// A container for name/value tuples encoded using application/x-www-form-urlencoded MIME type.
+        /// </summary>
+        /// <param name="url"></param>
+        /// <param name="formData"></param>
+        /// <param name="encoding"></param>
+        /// <param name="timeOut"></param>
+        /// <param name="cookie"></param>
+        /// <returns></returns>
+        public static async Task<string> HttpPostFormDataAndSetCookieAsync(string url, Dictionary<string, string> formData = null, Encoding encoding = null, int timeOut = 10000, string cookie = "")
+        {
+            CookieContainer cookies = new CookieContainer();
+            using (HttpClientHandler handler = new HttpClientHandler { CookieContainer = cookies })
+            using (HttpClient client = new HttpClient(handler))
+            {
+                HttpContent httpContent = new FormUrlEncodedContent(formData);
 
                 client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("text/html"));
                 client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/xhtml+xml"));
                 client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/xml", 0.9));
                 client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("image/webp"));
                 client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("*/*", 0.8));
-                hc.Headers.Add("UserAgent", "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/31.0.1650.57 Safari/537.36");
-                hc.Headers.Add("Timeout", timeOut.ToString());
-                hc.Headers.Add("KeepAlive", "true");
+                httpContent.Headers.Add("UserAgent", "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/31.0.1650.57 Safari/537.36");
+                httpContent.Headers.Add("Timeout", timeOut.ToString());
+                httpContent.Headers.Add("KeepAlive", "true");
+                httpContent.Headers.Add("Cookie", cookie);
 
-                var r = await client.PostAsync(url, hc);
-                byte[] tmp = await r.Content.ReadAsByteArrayAsync();
+                var result = await client.PostAsync(url, httpContent);
+                Uri uri = new Uri(url);
+                Cookies = cookies.GetCookies(uri).Cast<Cookie>();
 
+                byte[] tmp = await result.Content.ReadAsByteArrayAsync();
                 return encoding.GetString(tmp);
             }
         }
@@ -129,6 +167,7 @@ namespace Applicaction
                 return encoding.GetString(t2.Result);
             }
         }
+
         /// <summary>
         /// 组装QueryString的方法
         /// 参数之间用&连接，首位没有符号，如：a=1&b=2&c=3
@@ -157,6 +196,7 @@ namespace Applicaction
 
             return sb.ToString();
         }
+        
         /// <summary>
         /// 填充表单信息的Stream
         /// </summary>
@@ -168,6 +208,23 @@ namespace Applicaction
             var formDataBytes = formData == null ? new byte[0] : Encoding.UTF8.GetBytes(dataString);
             stream.Write(formDataBytes, 0, formDataBytes.Length);
             stream.Seek(0, SeekOrigin.Begin);//设置指针读取位置
+        }
+
+        public static void SetCookies(this HttpContentHeaders keyValuePairs)
+        {
+            // return formate "cookie1=value1; cookie2=value2"
+            string cookies = "";
+            var i = 0;
+            foreach (var item in Cookies)
+            {
+                cookies += item.Name + "=" + item.Value;
+                if (i < Cookies.Count())
+                {
+                    cookies += "; ";
+                }
+            }
+
+            keyValuePairs.Add("Cookie", cookies);
         }
     }
 }
